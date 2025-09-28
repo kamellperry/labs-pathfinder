@@ -40,6 +40,10 @@ export default function PlayScreen({ speedMode, mode }) {
   const [visited, setVisited] = useState(() => new Set());
   const [pathSet, setPathSet] = useState(() => new Set());
   const [wave, setWave] = useState({ x: 0, y: 0, key: 0 });
+  const [mazeRefreshKey, setMazeRefreshKey] = useState(0);
+
+  const startRef = useRef(start);
+  const targetRef = useRef(target);
 
   const visitDelay = SPEED_PRESETS[speedMode]?.VISIT ?? SPEED_PRESETS.Normal.VISIT;
   const pathDelay = SPEED_PRESETS[speedMode]?.PATH ?? SPEED_PRESETS.Normal.PATH;
@@ -70,11 +74,35 @@ export default function PlayScreen({ speedMode, mode }) {
   }, [clearAlgorithmPaint]);
 
   useEffect(() => {
-    if (mode === 'maze') {
-      clearAlgorithmPaint();
-      setWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target));
+    startRef.current = start;
+  }, [start]);
+
+  useEffect(() => {
+    targetRef.current = target;
+  }, [target]);
+
+  const updateWalls = useCallback((updater) => {
+    setWalls((prev) => {
+      const next = new Set(prev);
+      updater(next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (mode !== 'maze' && mazeRefreshKey === 0) {
+      return;
     }
-  }, [clearAlgorithmPaint, mode, start, target]);
+
+    setWalls(generateMaze(GRID_ROWS, GRID_COLS, startRef.current, targetRef.current));
+  }, [mazeRefreshKey, mode]);
+
+  useEffect(() => {
+    updateWalls((draft) => {
+      draft.delete(key(start.row, start.col));
+      draft.delete(key(target.row, target.col));
+    });
+  }, [start, target, updateWalls]);
 
   useEffect(() => {
     if (!isPointerDown) {
@@ -105,14 +133,6 @@ export default function PlayScreen({ speedMode, mode }) {
     }),
     [gridSize.cell],
   );
-
-  const updateWalls = useCallback((updater) => {
-    setWalls((prev) => {
-      const next = new Set(prev);
-      updater(next);
-      return next;
-    });
-  }, []);
 
   const eventToCell = useCallback(
     (event) => {
@@ -206,7 +226,6 @@ export default function PlayScreen({ speedMode, mode }) {
       if (dragging === 'start') {
         if (!(cell.row === target.row && cell.col === target.col)) {
           setStart({ row: cell.row, col: cell.col });
-          updateWalls((draft) => draft.delete(key(cell.row, cell.col)));
         }
         return;
       }
@@ -214,7 +233,6 @@ export default function PlayScreen({ speedMode, mode }) {
       if (dragging === 'target') {
         if (!(cell.row === start.row && cell.col === start.col)) {
           setTarget({ row: cell.row, col: cell.col });
-          updateWalls((draft) => draft.delete(key(cell.row, cell.col)));
         }
         return;
       }
@@ -398,7 +416,10 @@ export default function PlayScreen({ speedMode, mode }) {
       <ControlBar
         onRun={handleRun}
         onReset={resetBoard}
-        onMaze={handleGenerateMaze}
+        onMaze={() => {
+          clearAlgorithmPaint();
+          setMazeRefreshKey((value) => value + 1);
+        }}
       />
     </motion.main>
   );
