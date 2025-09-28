@@ -73,11 +73,21 @@ export default function PlayScreen({ speedMode, mode }) {
     targetRef.current = target;
   }, [target]);
 
+  const updateWalls = useCallback((updater) => {
+    setWalls((prev) => {
+      const next = new Set(prev);
+      updater(next);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
-    if (mode === 'maze') {
-      setWalls(generateMaze(GRID_ROWS, GRID_COLS, startRef.current, targetRef.current));
+    if (mode !== 'maze' && mazeRefreshKey === 0) {
+      return;
     }
-  }, [mode, mazeRefreshKey]);
+
+    setWalls(generateMaze(GRID_ROWS, GRID_COLS, startRef.current, targetRef.current));
+  }, [mazeRefreshKey, mode]);
 
   useEffect(() => {
     updateWalls((draft) => {
@@ -115,14 +125,6 @@ export default function PlayScreen({ speedMode, mode }) {
     }),
     [gridSize.cell],
   );
-
-  const updateWalls = useCallback((updater) => {
-    setWalls((prev) => {
-      const next = new Set(prev);
-      updater(next);
-      return next;
-    });
-  }, []);
 
   const eventToCell = useCallback(
     (event) => {
