@@ -322,7 +322,7 @@ export default function PlayScreen({ speedMode, mode }) {
     return runAlgorithm();
   }, [bumpRunId, runAlgorithm]);
 
-  const styleMap = useMemo(
+  const cellStyles = useMemo(
     () => ({
       default: { backgroundColor: 'transparent' },
       start: { backgroundColor: COLORS.start },
@@ -347,9 +347,12 @@ export default function PlayScreen({ speedMode, mode }) {
       start: { borderRadius: '0%', scale: 1 },
       target: { borderRadius: '0%', scale: 1 },
       wall: { borderRadius: '0%', scale: 1 },
-      path: { borderRadius: '0%', scale: 1 },
+      path: {
+        borderRadius: ['15%', '0%'],
+        scale: [1.05, 1],
+      },
       visited: {
-        borderRadius: ['50%', '0%'],
+        borderRadius: ['45%', '0%'],
         scale: [0.55, 1],
       },
     }),
@@ -358,12 +361,12 @@ export default function PlayScreen({ speedMode, mode }) {
 
   const cellTransitions = useMemo(
     () => ({
-      default: { ease: 'easeOut', duration: 0.18 },
+      default: { ease: 'easeOut', duration: 0.16 },
+      start: { ease: 'easeOut', duration: 0.16 },
+      target: { ease: 'easeOut', duration: 0.16 },
+      wall: { ease: 'easeOut', duration: 0.16 },
+      path: { ease: 'easeOut', duration: 0.22 },
       visited: { ease: 'easeOut', duration: 0.18 },
-      wall: { ease: 'easeOut', duration: 0.18 },
-      path: { ease: 'easeOut', duration: 0.18 },
-      start: { ease: 'easeOut', duration: 0.18 },
-      target: { ease: 'easeOut', duration: 0.18 },
     }),
     [],
   );
@@ -409,7 +412,7 @@ export default function PlayScreen({ speedMode, mode }) {
           <motion.div
             key={cellKey}
             className={pathCell ? 'w-full h-full path-shimmer' : 'w-full h-full'}
-            style={styleMap[styleKey]}
+            style={cellStyles[styleKey]}
             variants={cellVariants}
             initial={false}
             animate={animateVariant}
@@ -419,7 +422,7 @@ export default function PlayScreen({ speedMode, mode }) {
       }
     }
     return cells;
-  }, [cellTransitions, cellVariants, pathSet, start, styleMap, target, visited, walls]);
+  }, [cellStyles, cellTransitions, cellVariants, pathSet, start, target, visited, walls]);
 
   const waveDiameter = useMemo(() => {
     const { width = 0, height = 0 } = gridSize;
