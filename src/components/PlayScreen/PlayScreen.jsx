@@ -245,7 +245,7 @@ export default function PlayScreen({ speedMode, mode }) {
       applyStroke(last.row, last.col, cell.row, cell.col, paintMode);
       lastCellRef.current = cell;
     },
-    [applyStroke, dragging, eventToCell, isPointerDown, paintMode, start, target, updateWalls],
+    [applyStroke, dragging, eventToCell, isPointerDown, paintMode, start, target],
   );
 
   const handlePointerUp = useCallback((event) => {
@@ -322,10 +322,51 @@ export default function PlayScreen({ speedMode, mode }) {
     return runAlgorithm();
   }, [bumpRunId, runAlgorithm]);
 
-  const handleGenerateMaze = useCallback(() => {
-    clearAlgorithmPaint();
-    setWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target));
-  }, [clearAlgorithmPaint, start, target]);
+  const styleMap = useMemo(
+    () => ({
+      default: { backgroundColor: 'transparent' },
+      start: { backgroundColor: COLORS.start },
+      target: { backgroundColor: COLORS.target },
+      wall: {
+        background: `linear-gradient(180deg, ${COLORS.obstacleTop}, ${COLORS.obstacleBottom})`,
+      },
+      path: {
+        background: `linear-gradient(135deg, ${COLORS.pathA}, ${COLORS.pathB})`,
+        backgroundSize: '200% 200%',
+      },
+      visited: {
+        background: `linear-gradient(180deg, ${COLORS.visitedTop}, ${COLORS.visitedBottom})`,
+      },
+    }),
+    [],
+  );
+
+  const cellVariants = useMemo(
+    () => ({
+      default: { borderRadius: '0%', scale: 1 },
+      start: { borderRadius: '0%', scale: 1 },
+      target: { borderRadius: '0%', scale: 1 },
+      wall: { borderRadius: '0%', scale: 1 },
+      path: { borderRadius: '0%', scale: 1 },
+      visited: {
+        borderRadius: ['50%', '0%'],
+        scale: [0.55, 1],
+      },
+    }),
+    [],
+  );
+
+  const cellTransitions = useMemo(
+    () => ({
+      default: { ease: 'easeOut', duration: 0.18 },
+      visited: { ease: 'easeOut', duration: 0.18 },
+      wall: { ease: 'easeOut', duration: 0.18 },
+      path: { ease: 'easeOut', duration: 0.18 },
+      start: { ease: 'easeOut', duration: 0.18 },
+      target: { ease: 'easeOut', duration: 0.18 },
+    }),
+    [],
+  );
 
   const gridCells = useMemo(() => {
     const cells = [];
@@ -338,46 +379,47 @@ export default function PlayScreen({ speedMode, mode }) {
         const visitedCell = visited.has(cellKey);
         const pathCell = pathSet.has(cellKey);
 
-        let style = {};
-        if (isStart) {
-          style = { backgroundColor: COLORS.start };
-        } else if (isTarget) {
-          style = { backgroundColor: COLORS.target };
-        } else if (wall) {
-          style = {
-            background: `linear-gradient(180deg, ${COLORS.obstacleTop}, ${COLORS.obstacleBottom})`,
-          };
-        } else if (pathCell) {
-          style = {
-            background: `linear-gradient(135deg, ${COLORS.pathA}, ${COLORS.pathB})`,
-            backgroundSize: '200% 200%',
-          };
-        } else if (visitedCell) {
-          style = {
-            background: `linear-gradient(180deg, ${COLORS.visitedTop}, ${COLORS.visitedBottom})`,
-          };
-        } else {
-          style = { backgroundColor: 'transparent' };
-        }
+        const styleKey = isStart
+          ? 'start'
+          : isTarget
+          ? 'target'
+          : wall
+          ? 'wall'
+          : pathCell
+          ? 'path'
+          : visitedCell
+          ? 'visited'
+          : 'default';
 
-        const variantKey = `${cellKey}-${visitedCell ? 'v' : ''}-${pathCell ? 'p' : ''}-${wall ? 'w' : ''}-${
-          isStart ? 's' : ''
-        }-${isTarget ? 't' : ''}`;
+        const animateVariant = wall
+          ? 'wall'
+          : pathCell
+          ? 'path'
+          : visitedCell
+          ? 'visited'
+          : isStart
+          ? 'start'
+          : isTarget
+          ? 'target'
+          : 'default';
+
+        const transition = cellTransitions[animateVariant] ?? cellTransitions.default;
 
         cells.push(
           <motion.div
-            key={variantKey}
+            key={cellKey}
             className={pathCell ? 'w-full h-full path-shimmer' : 'w-full h-full'}
-            style={style}
-            initial={visitedCell ? { borderRadius: '50%', scale: 0.55 } : { borderRadius: '0%', scale: 1 }}
-            animate={{ borderRadius: '0%', scale: 1 }}
-            transition={{ ease: 'easeOut', duration: 0.18 }}
+            style={styleMap[styleKey]}
+            variants={cellVariants}
+            initial={false}
+            animate={animateVariant}
+            transition={transition}
           />,
         );
       }
     }
     return cells;
-  }, [pathSet, start, target, visited, walls]);
+  }, [cellTransitions, cellVariants, pathSet, start, styleMap, target, visited, walls]);
 
   const waveDiameter = useMemo(() => {
     const { width = 0, height = 0 } = gridSize;
