@@ -4,6 +4,7 @@ import { useStageSize } from '../../hooks/useStageSize.js';
 import { useGridSize } from '../../hooks/useGridSize.js';
 import ControlBar from './ControlBar.jsx';
 import PathfinderBoard from './PathfinderBoard.jsx';
+import PathfinderCell from './PathfinderCell.jsx';
 import { fromKey, generateMaze, key, lineCells, runDijkstra, sleep } from '../../lib/pathfinding.js';
 
 const GRID_ROWS = 22;
@@ -25,6 +26,31 @@ const COLORS = {
   target: '#FF3B30',
 };
 
+const CELL_STYLES = Object.freeze({
+  default: Object.freeze({ backgroundColor: 'transparent' }),
+  start: Object.freeze({ backgroundColor: COLORS.start }),
+  target: Object.freeze({ backgroundColor: COLORS.target }),
+  wall: Object.freeze({
+    background: `linear-gradient(180deg, ${COLORS.obstacleTop}, ${COLORS.obstacleBottom})`,
+  }),
+  path: Object.freeze({
+    background: `linear-gradient(135deg, ${COLORS.pathA}, ${COLORS.pathB})`,
+    backgroundSize: '200% 200%',
+  }),
+  visited: Object.freeze({
+    background: `linear-gradient(180deg, ${COLORS.visitedTop}, ${COLORS.visitedBottom})`,
+  }),
+});
+
+const CELL_INITIAL_VARIANTS = Object.freeze({
+  default: Object.freeze({ borderRadius: '0%', scale: 1 }),
+  visited: Object.freeze({ borderRadius: '50%', scale: 0.55 }),
+});
+
+const CELL_ANIMATE_VARIANT = Object.freeze({ borderRadius: '0%', scale: 1 });
+
+const CELL_TRANSITION = Object.freeze({ ease: 'easeOut', duration: 0.18 });
+
 export default function PlayScreen({ speedMode, mode }) {
   const stageRef = useRef(null);
   const lastCellRef = useRef(null);
@@ -36,14 +62,59 @@ export default function PlayScreen({ speedMode, mode }) {
 
   const [start, setStart] = useState({ row: 3, col: 2 });
   const [target, setTarget] = useState({ row: 18, col: 15 });
-  const [walls, setWalls] = useState(() => new Set());
-  const [visited, setVisited] = useState(() => new Set());
-  const [pathSet, setPathSet] = useState(() => new Set());
+  const wallsRef = useRef(new Set());
+  const visitedRef = useRef(new Set());
+  const pathRef = useRef(new Set());
+  const [wallsVersion, setWallsVersion] = useState(0);
+  const [visitedVersion, setVisitedVersion] = useState(0);
+  const [pathVersion, setPathVersion] = useState(0);
   const [wave, setWave] = useState({ x: 0, y: 0, key: 0 });
   const [mazeRefreshKey, setMazeRefreshKey] = useState(0);
 
   const startRef = useRef(start);
   const targetRef = useRef(target);
+
+  const replaceWalls = useCallback((nextSet) => {
+    wallsRef.current = nextSet;
+    setWallsVersion((prev) => prev + 1);
+  }, []);
+
+  const updateWalls = useCallback((updater) => {
+    const next = new Set(wallsRef.current);
+    updater(next);
+    wallsRef.current = next;
+    setWallsVersion((prev) => prev + 1);
+  }, []);
+
+  const replaceVisited = useCallback((nextSet) => {
+    visitedRef.current = nextSet;
+    setVisitedVersion((prev) => prev + 1);
+  }, []);
+
+  const addVisitedCell = useCallback((cellKey) => {
+    if (visitedRef.current.has(cellKey)) {
+      return;
+    }
+    const next = new Set(visitedRef.current);
+    next.add(cellKey);
+    visitedRef.current = next;
+    setVisitedVersion((prev) => prev + 1);
+  }, []);
+
+  const replacePathSet = useCallback((nextSet) => {
+    pathRef.current = nextSet;
+    setPathVersion((prev) => prev + 1);
+  }, []);
+
+  const addPathCell = useCallback((cellKey) => {
+    if (pathRef.current.has(cellKey)) {
+      return;
+    }
+    const next = new Set(pathRef.current);
+    next.add(cellKey);
+    pathRef.current = next;
+    setPathVersion((prev) => prev + 1);
+  }, []);
 
   const visitDelay = SPEED_PRESETS[speedMode]?.VISIT ?? SPEED_PRESETS.Normal.VISIT;
   const pathDelay = SPEED_PRESETS[speedMode]?.PATH ?? SPEED_PRESETS.Normal.PATH;
@@ -63,15 +134,15 @@ export default function PlayScreen({ speedMode, mode }) {
 
   const clearAlgorithmPaint = useCallback(() => {
     const runId = bumpRunId();
-    setVisited(new Set());
-    setPathSet(new Set());
+    replaceVisited(new Set());
+    replacePathSet(new Set());
     return runId;
-  }, [bumpRunId]);
+  }, [bumpRunId, replacePathSet, replaceVisited]);
 
   const resetBoard = useCallback(() => {
     clearAlgorithmPaint();
-    setWalls(new Set());
-  }, [clearAlgorithmPaint]);
+    replaceWalls(new Set());
+  }, [clearAlgorithmPaint, replaceWalls]);
 
   useEffect(() => {
     startRef.current = start;
@@ -81,21 +152,13 @@ export default function PlayScreen({ speedMode, mode }) {
     targetRef.current = target;
   }, [target]);
 
-  const updateWalls = useCallback((updater) => {
-    setWalls((prev) => {
-      const next = new Set(prev);
-      updater(next);
-      return next;
-    });
-  }, []);
-
   useEffect(() => {
     if (mode !== 'maze' && mazeRefreshKey === 0) {
       return;
     }
 
-    setWalls(generateMaze(GRID_ROWS, GRID_COLS, startRef.current, targetRef.current));
-  }, [mazeRefreshKey, mode]);
+    replaceWalls(generateMaze(GRID_ROWS, GRID_COLS, startRef.current, targetRef.current));
+  }, [mazeRefreshKey, mode, replaceWalls]);
 
   useEffect(() => {
     updateWalls((draft) => {
@@ -124,7 +187,7 @@ export default function PlayScreen({ speedMode, mode }) {
     };
   }, [isPointerDown]);
 
-  const isWall = useCallback((row, col) => walls.has(key(row, col)), [walls]);
+  const isWall = useCallback((row, col) => wallsRef.current.has(key(row, col)), []);
 
   const cellCenterPx = useCallback(
     (row, col) => ({
@@ -198,7 +261,7 @@ export default function PlayScreen({ speedMode, mode }) {
       }
 
       const cellKey = key(cell.row, cell.col);
-      const existingWall = walls.has(cellKey);
+      const existingWall = wallsRef.current.has(cellKey);
       setPaintMode(existingWall ? 'erase' : 'wall');
       updateWalls((draft) => {
         if (existingWall) {
@@ -208,7 +271,7 @@ export default function PlayScreen({ speedMode, mode }) {
         }
       });
     },
-    [clearAlgorithmPaint, eventToCell, start, target, updateWalls, walls],
+    [clearAlgorithmPaint, eventToCell, start, target, updateWalls],
   );
 
   const handlePointerMove = useCallback(
@@ -275,7 +338,7 @@ export default function PlayScreen({ speedMode, mode }) {
       if (currentRunIdRef.current !== runId) {
         return;
       }
-      setVisited((prev) => new Set(prev).add(cellKey));
+      addVisitedCell(cellKey);
       if (currentRunIdRef.current !== runId) {
         return;
       }
@@ -307,7 +370,7 @@ export default function PlayScreen({ speedMode, mode }) {
         if (currentRunIdRef.current !== runId) {
           return;
         }
-        setPathSet((prev) => new Set(prev).add(cellKey));
+        addPathCell(cellKey);
         // eslint-disable-next-line no-await-in-loop
         await sleep(pathDelay);
         if (currentRunIdRef.current !== runId) {
@@ -315,7 +378,17 @@ export default function PlayScreen({ speedMode, mode }) {
         }
       }
     }
-  }, [cellCenterPx, clearAlgorithmPaint, isWall, pathDelay, start, target, visitDelay]);
+  }, [
+    addPathCell,
+    addVisitedCell,
+    cellCenterPx,
+    clearAlgorithmPaint,
+    isWall,
+    pathDelay,
+    start,
+    target,
+    visitDelay,
+  ]);
 
   const handleRun = useCallback(() => {
     bumpRunId();
@@ -324,60 +397,63 @@ export default function PlayScreen({ speedMode, mode }) {
 
   const handleGenerateMaze = useCallback(() => {
     clearAlgorithmPaint();
-    setWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target));
-  }, [clearAlgorithmPaint, start, target]);
+    replaceWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target));
+  }, [clearAlgorithmPaint, replaceWalls, start, target]);
 
-  const gridCells = useMemo(() => {
-    const cells = [];
-    for (let row = 0; row < GRID_ROWS; row += 1) {
-      for (let col = 0; col < GRID_COLS; col += 1) {
-        const cellKey = key(row, col);
-        const isStart = row === start.row && col === start.col;
-        const isTarget = row === target.row && col === target.col;
-        const wall = walls.has(cellKey);
-        const visitedCell = visited.has(cellKey);
-        const pathCell = pathSet.has(cellKey);
+  const gridCells = useMemo(
+    () =>
+      Array.from({ length: GRID_ROWS }, (_, row) =>
+        Array.from({ length: GRID_COLS }, (_, col) => {
+          const cellKey = key(row, col);
+          const isStart = row === start.row && col === start.col;
+          const isTarget = row === target.row && col === target.col;
+          const wall = wallsRef.current.has(cellKey);
+          const visitedCell = visitedRef.current.has(cellKey);
+          const pathCell = pathRef.current.has(cellKey);
 
-        let style = {};
-        if (isStart) {
-          style = { backgroundColor: COLORS.start };
-        } else if (isTarget) {
-          style = { backgroundColor: COLORS.target };
-        } else if (wall) {
-          style = {
-            background: `linear-gradient(180deg, ${COLORS.obstacleTop}, ${COLORS.obstacleBottom})`,
-          };
-        } else if (pathCell) {
-          style = {
-            background: `linear-gradient(135deg, ${COLORS.pathA}, ${COLORS.pathB})`,
-            backgroundSize: '200% 200%',
-          };
-        } else if (visitedCell) {
-          style = {
-            background: `linear-gradient(180deg, ${COLORS.visitedTop}, ${COLORS.visitedBottom})`,
-          };
-        } else {
-          style = { backgroundColor: 'transparent' };
-        }
+          let style = CELL_STYLES.default;
+          if (isStart) {
+            style = CELL_STYLES.start;
+          } else if (isTarget) {
+            style = CELL_STYLES.target;
+          } else if (wall) {
+            style = CELL_STYLES.wall;
+          } else if (pathCell) {
+            style = CELL_STYLES.path;
+          } else if (visitedCell) {
+            style = CELL_STYLES.visited;
+          }
 
-        const variantKey = `${cellKey}-${visitedCell ? 'v' : ''}-${pathCell ? 'p' : ''}-${wall ? 'w' : ''}-${
-          isStart ? 's' : ''
-        }-${isTarget ? 't' : ''}`;
+          const initialVariant = visitedCell
+            ? CELL_INITIAL_VARIANTS.visited
+            : CELL_INITIAL_VARIANTS.default;
 
-        cells.push(
-          <motion.div
-            key={variantKey}
-            className={pathCell ? 'w-full h-full path-shimmer' : 'w-full h-full'}
-            style={style}
-            initial={visitedCell ? { borderRadius: '50%', scale: 0.55 } : { borderRadius: '0%', scale: 1 }}
-            animate={{ borderRadius: '0%', scale: 1 }}
-            transition={{ ease: 'easeOut', duration: 0.18 }}
-          />,
-        );
-      }
-    }
-    return cells;
-  }, [pathSet, start, target, visited, walls]);
+          return (
+            <PathfinderCell
+              key={cellKey}
+              visited={visitedCell}
+              path={pathCell}
+              wall={wall}
+              isStart={isStart}
+              isTarget={isTarget}
+              style={style}
+              initialVariant={initialVariant}
+              animateVariant={CELL_ANIMATE_VARIANT}
+              transition={CELL_TRANSITION}
+            />
+          );
+        }),
+      ),
+    [
+      pathVersion,
+      start.col,
+      start.row,
+      target.col,
+      target.row,
+      visitedVersion,
+      wallsVersion,
+    ],
+  );
 
   const waveDiameter = useMemo(() => {
     const { width = 0, height = 0 } = gridSize;
