@@ -28,6 +28,7 @@ const COLORS = {
 export default function PlayScreen({ speedMode, mode }) {
   const stageRef = useRef(null);
   const lastCellRef = useRef(null);
+  const currentRunIdRef = useRef(0);
 
   const [isPointerDown, setIsPointerDown] = useState(false);
   const [dragging, setDragging] = useState(null);
@@ -51,21 +52,29 @@ export default function PlayScreen({ speedMode, mode }) {
 
   const gridSize = useGridSize({ width: stageSize.width, height: stageSize.height }, GRID_ROWS, GRID_COLS);
 
-  const clearAlgorithmPaint = useCallback(() => {
-    setVisited(new Set());
-    setPathSet(new Set());
+  const bumpRunId = useCallback(() => {
+    currentRunIdRef.current += 1;
+    return currentRunIdRef.current;
   }, []);
 
+  const clearAlgorithmPaint = useCallback(() => {
+    const runId = bumpRunId();
+    setVisited(new Set());
+    setPathSet(new Set());
+    return runId;
+  }, [bumpRunId]);
+
   const resetBoard = useCallback(() => {
-    setWalls(new Set());
     clearAlgorithmPaint();
+    setWalls(new Set());
   }, [clearAlgorithmPaint]);
 
   useEffect(() => {
     if (mode === 'maze') {
+      clearAlgorithmPaint();
       setWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target));
     }
-  }, [mode, start, target]);
+  }, [clearAlgorithmPaint, mode, start, target]);
 
   useEffect(() => {
     if (!isPointerDown) {
@@ -230,7 +239,7 @@ export default function PlayScreen({ speedMode, mode }) {
   }, []);
 
   const runAlgorithm = useCallback(async () => {
-    clearAlgorithmPaint();
+    const runId = clearAlgorithmPaint();
     const { visitedOrder, path, found } = runDijkstra({
       rows: GRID_ROWS,
       cols: GRID_COLS,
@@ -240,27 +249,65 @@ export default function PlayScreen({ speedMode, mode }) {
     });
 
     for (let index = 0; index < visitedOrder.length; index += 1) {
+      if (currentRunIdRef.current !== runId) {
+        return;
+      }
       const cellKey = visitedOrder[index];
       const [row, col] = fromKey(cellKey);
+      if (currentRunIdRef.current !== runId) {
+        return;
+      }
       setVisited((prev) => new Set(prev).add(cellKey));
+      if (currentRunIdRef.current !== runId) {
+        return;
+      }
       const { x, y } = cellCenterPx(row, col);
+      if (currentRunIdRef.current !== runId) {
+        return;
+      }
       setWave({ x, y, key: index });
       // eslint-disable-next-line no-await-in-loop
       await sleep(visitDelay);
+      if (currentRunIdRef.current !== runId) {
+        return;
+      }
       if (row === target.row && col === target.col) {
         break;
       }
     }
 
+    if (currentRunIdRef.current !== runId) {
+      return;
+    }
+
     if (found) {
       for (let index = 0; index < path.length; index += 1) {
+        if (currentRunIdRef.current !== runId) {
+          return;
+        }
         const cellKey = path[index];
+        if (currentRunIdRef.current !== runId) {
+          return;
+        }
         setPathSet((prev) => new Set(prev).add(cellKey));
         // eslint-disable-next-line no-await-in-loop
         await sleep(pathDelay);
+        if (currentRunIdRef.current !== runId) {
+          return;
+        }
       }
     }
   }, [cellCenterPx, clearAlgorithmPaint, isWall, pathDelay, start, target, visitDelay]);
+
+  const handleRun = useCallback(() => {
+    bumpRunId();
+    return runAlgorithm();
+  }, [bumpRunId, runAlgorithm]);
+
+  const handleGenerateMaze = useCallback(() => {
+    clearAlgorithmPaint();
+    setWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target));
+  }, [clearAlgorithmPaint, start, target]);
 
   const gridCells = useMemo(() => {
     const cells = [];
@@ -349,9 +396,9 @@ export default function PlayScreen({ speedMode, mode }) {
         visitDelay={visitDelay}
       />
       <ControlBar
-        onRun={runAlgorithm}
+        onRun={handleRun}
         onReset={resetBoard}
-        onMaze={() => setWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target))}
+        onMaze={handleGenerateMaze}
       />
     </motion.main>
   );
