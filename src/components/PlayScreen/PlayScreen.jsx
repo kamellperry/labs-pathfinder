@@ -37,13 +37,17 @@ export default function PlayScreen({ speedMode, mode }) {
   const [start, setStart] = useState({ row: 3, col: 2 });
   const [target, setTarget] = useState({ row: 18, col: 15 });
   const [walls, setWalls] = useState(() => new Set());
-  const [visited, setVisited] = useState(() => new Set());
-  const [pathSet, setPathSet] = useState(() => new Set());
+  const visitedRef = useRef(new Uint8Array(GRID_ROWS * GRID_COLS));
+  const pathRef = useRef(new Uint8Array(GRID_ROWS * GRID_COLS));
+  const [visitedVersion, setVisitedVersion] = useState(0);
+  const [pathVersion, setPathVersion] = useState(0);
   const [wave, setWave] = useState({ x: 0, y: 0, key: 0 });
   const [mazeRefreshKey, setMazeRefreshKey] = useState(0);
 
   const startRef = useRef(start);
   const targetRef = useRef(target);
+  const visitedFrameRef = useRef(null);
+  const pathFrameRef = useRef(null);
 
   const visitDelay = SPEED_PRESETS[speedMode]?.VISIT ?? SPEED_PRESETS.Normal.VISIT;
   const pathDelay = SPEED_PRESETS[speedMode]?.PATH ?? SPEED_PRESETS.Normal.PATH;
@@ -63,10 +67,12 @@ export default function PlayScreen({ speedMode, mode }) {
 
   const clearAlgorithmPaint = useCallback(() => {
     const runId = bumpRunId();
-    setVisited(new Set());
-    setPathSet(new Set());
+    visitedRef.current.fill(0);
+    pathRef.current.fill(0);
+    setVisitedVersion((value) => value + 1);
+    setPathVersion((value) => value + 1);
     return runId;
-  }, [bumpRunId]);
+  }, [bumpRunId, setPathVersion, setVisitedVersion]);
 
   const resetBoard = useCallback(() => {
     clearAlgorithmPaint();
@@ -80,6 +86,23 @@ export default function PlayScreen({ speedMode, mode }) {
   useEffect(() => {
     targetRef.current = target;
   }, [target]);
+
+  useEffect(
+    () => () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      if (visitedFrameRef.current !== null) {
+        window.cancelAnimationFrame(visitedFrameRef.current);
+        visitedFrameRef.current = null;
+      }
+      if (pathFrameRef.current !== null) {
+        window.cancelAnimationFrame(pathFrameRef.current);
+        pathFrameRef.current = null;
+      }
+    },
+    [],
+  );
 
   const updateWalls = useCallback((updater) => {
     setWalls((prev) => {
@@ -245,7 +268,7 @@ export default function PlayScreen({ speedMode, mode }) {
       applyStroke(last.row, last.col, cell.row, cell.col, paintMode);
       lastCellRef.current = cell;
     },
-    [applyStroke, dragging, eventToCell, isPointerDown, paintMode, start, target, updateWalls],
+    [applyStroke, dragging, eventToCell, isPointerDown, paintMode, start, target],
   );
 
   const handlePointerUp = useCallback((event) => {
@@ -255,6 +278,34 @@ export default function PlayScreen({ speedMode, mode }) {
     const grid = document.getElementById('gridWrapper');
     grid?.releasePointerCapture?.(event.pointerId ?? 1);
   }, []);
+
+  const scheduleVisitedVersion = useCallback(() => {
+    if (typeof window === 'undefined') {
+      setVisitedVersion((value) => value + 1);
+      return;
+    }
+    if (visitedFrameRef.current !== null) {
+      return;
+    }
+    visitedFrameRef.current = window.requestAnimationFrame(() => {
+      visitedFrameRef.current = null;
+      setVisitedVersion((value) => value + 1);
+    });
+  }, [setVisitedVersion]);
+
+  const schedulePathVersion = useCallback(() => {
+    if (typeof window === 'undefined') {
+      setPathVersion((value) => value + 1);
+      return;
+    }
+    if (pathFrameRef.current !== null) {
+      return;
+    }
+    pathFrameRef.current = window.requestAnimationFrame(() => {
+      pathFrameRef.current = null;
+      setPathVersion((value) => value + 1);
+    });
+  }, [setPathVersion]);
 
   const runAlgorithm = useCallback(async () => {
     const runId = clearAlgorithmPaint();
@@ -272,10 +323,12 @@ export default function PlayScreen({ speedMode, mode }) {
       }
       const cellKey = visitedOrder[index];
       const [row, col] = fromKey(cellKey);
+      const cellIndex = row * GRID_COLS + col;
       if (currentRunIdRef.current !== runId) {
         return;
       }
-      setVisited((prev) => new Set(prev).add(cellKey));
+      visitedRef.current[cellIndex] = 1;
+      scheduleVisitedVersion();
       if (currentRunIdRef.current !== runId) {
         return;
       }
@@ -307,7 +360,10 @@ export default function PlayScreen({ speedMode, mode }) {
         if (currentRunIdRef.current !== runId) {
           return;
         }
-        setPathSet((prev) => new Set(prev).add(cellKey));
+        const [row, col] = fromKey(cellKey);
+        const cellIndex = row * GRID_COLS + col;
+        pathRef.current[cellIndex] = 1;
+        schedulePathVersion();
         // eslint-disable-next-line no-await-in-loop
         await sleep(pathDelay);
         if (currentRunIdRef.current !== runId) {
@@ -315,19 +371,16 @@ export default function PlayScreen({ speedMode, mode }) {
         }
       }
     }
-  }, [cellCenterPx, clearAlgorithmPaint, isWall, pathDelay, start, target, visitDelay]);
+  }, [cellCenterPx, clearAlgorithmPaint, isWall, pathDelay, schedulePathVersion, scheduleVisitedVersion, start, target, visitDelay]);
 
   const handleRun = useCallback(() => {
     bumpRunId();
     return runAlgorithm();
   }, [bumpRunId, runAlgorithm]);
 
-  const handleGenerateMaze = useCallback(() => {
-    clearAlgorithmPaint();
-    setWalls(generateMaze(GRID_ROWS, GRID_COLS, start, target));
-  }, [clearAlgorithmPaint, start, target]);
-
   const gridCells = useMemo(() => {
+    void visitedVersion;
+    void pathVersion;
     const cells = [];
     for (let row = 0; row < GRID_ROWS; row += 1) {
       for (let col = 0; col < GRID_COLS; col += 1) {
@@ -335,8 +388,9 @@ export default function PlayScreen({ speedMode, mode }) {
         const isStart = row === start.row && col === start.col;
         const isTarget = row === target.row && col === target.col;
         const wall = walls.has(cellKey);
-        const visitedCell = visited.has(cellKey);
-        const pathCell = pathSet.has(cellKey);
+        const cellIndex = row * GRID_COLS + col;
+        const visitedCell = visitedRef.current[cellIndex] === 1;
+        const pathCell = pathRef.current[cellIndex] === 1;
 
         let style = {};
         if (isStart) {
@@ -377,7 +431,7 @@ export default function PlayScreen({ speedMode, mode }) {
       }
     }
     return cells;
-  }, [pathSet, start, target, visited, walls]);
+  }, [pathVersion, start, target, visitedVersion, walls]);
 
   const waveDiameter = useMemo(() => {
     const { width = 0, height = 0 } = gridSize;
