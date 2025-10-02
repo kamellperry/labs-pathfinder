@@ -482,7 +482,7 @@ export default function PlayScreen({ speedMode, mode }) {
     }
     return cells;
                             
-  }, [cellStyles, cellTransitions, cellVariants, pathSet, start, target, visited, walls]);
+  }, [cellStyles, cellTransitions, cellVariants, pathVersion, start, target, visitedVersion, walls]);
 
   const waveDiameter = useMemo(() => {
     const { width = 0, height = 0 } = gridSize;
